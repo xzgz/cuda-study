@@ -294,7 +294,7 @@ inline void sgemm_16x6_block_parallel
 // -----------------------------------------------------------------------------
 
 // Change this line to try other sizes:
-const int n = 16*6*20;  // 16*6*10 (1 million in N^2), 16*6*30 (8 million in N^2)
+const int n = 16*6*10;  // 16*6*10 (1 million in N^2), 16*6*30 (8 million in N^2)
 const int m = n;
 const int r = n;
 

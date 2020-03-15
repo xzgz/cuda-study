@@ -1,0 +1,1 @@
+/home/xzgz/code-temp/cuda-study/simple/hello.cu
