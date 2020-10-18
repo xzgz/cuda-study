@@ -1,1 +1,0 @@
-/home/xzgz/code-temp/cuda-study/chapter04/sumArrayZerocpy.cu
