@@ -1,0 +1,37 @@
+#!/bin/bash
+CLK_ST="c379 0400 0000 0000 0050 0000 0062 6e00" 
+CLK_END="0578 0000 0000 0000 0050 0000 00d0 0f00" 
+DEPBAR="1a79 0000 0090 0000 0000 0000 00d0 0f00" 
+NOP="1879 0000 0000 0000 0000 0000 00c0 0f00" 
+
+cp clk_8x32x16HHF_RR_bak clk_8x32x16HHF_RR 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x00063418;wx $CLK_END;s 0x00063428;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x00063408;wx $CLK_END;s 0x00063418;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x000633f8;wx $CLK_END;s 0x00063408;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x000633e8;wx $CLK_END;s 0x000633f8;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+cp clk_8x32x16HHF_RR_bak clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x000633c8;wx $DEPBAR;s 0x000633d8;wx $CLK_ST;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x00063418;wx $CLK_END;s 0x00063428;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x00063408;wx $CLK_END;s 0x00063418;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x000633f8;wx $CLK_END;s 0x00063408;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 
+
+r2 -Aw clk_8x32x16HHF_RR -c "s 0x000633b8;px;s 0x000633e8;wx $CLK_END;s 0x000633f8;wx $NOP;s 0x000633b8;px" 
+./clk_8x32x16HHF_RR 

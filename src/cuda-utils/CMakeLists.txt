@@ -1,0 +1,12 @@
+file(GLOB_RECURSE cuda_src ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+get_filename_component(directory_name ${CMAKE_CURRENT_SOURCE_DIR} NAME_WE)
+set_source_files_properties(${cuda_src} PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
+
+list(REMOVE_ITEM PROJECT_LINK_LIBS ${directory_name})
+#cuda_add_library(${directory_name} STATIC ${cuda_src})
+cuda_add_library(${directory_name} SHARED ${cuda_src})
+target_link_libraries(${directory_name} ${CUDA_LINK_LIBS} c_plus_utils)
+set_target_properties(${directory_name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/${directory_name})
+set_target_properties(${directory_name} PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+install(TARGETS ${directory_name} DESTINATION ${PROJECT_BINARY_DIR}/install/lib)
+list(APPEND PROJECT_LINK_LIBS ${directory_name})
