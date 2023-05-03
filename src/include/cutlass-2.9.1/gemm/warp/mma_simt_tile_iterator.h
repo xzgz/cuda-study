@@ -690,7 +690,7 @@ public:
   /// Loads a fragment from memory at the location pointed to by the iterator. (vector loads)
   CUTLASS_HOST_DEVICE
   void load_with_pointer_offset(Fragment &frag, Index pointer_offset) const {
-  if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("bbb\n");
+  // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("bbb\n");
 
     Array<Element, Policy::LaneMmaShape::kN> *dst_ptr = 
       reinterpret_cast<Array<Element, Policy::LaneMmaShape::kN> *>(&frag);

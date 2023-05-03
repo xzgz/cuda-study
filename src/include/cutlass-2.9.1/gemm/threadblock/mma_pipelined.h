@@ -239,9 +239,9 @@ public:
     this->warp_tile_iterator_A_.set_kgroup_index(0);
     this->warp_tile_iterator_B_.set_kgroup_index(0);
 
-    if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("before aaa\n");
+    // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("before aaa\n");
     this->warp_tile_iterator_A_.load(warp_frag_A[0]);
-    if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("before bbb\n");
+    // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) printf("before bbb\n");
     this->warp_tile_iterator_B_.load(warp_frag_B[0]);
 
     ++this->warp_tile_iterator_A_;

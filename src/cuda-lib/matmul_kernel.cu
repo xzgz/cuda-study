@@ -4,8 +4,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-__global__ void cuda_kernel_warmup(float *p)
-{
+__global__ void cuda_kernel_warmup(float* p) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     float f = (float)idx;
     p[idx] = f * f * f;
@@ -13,19 +12,14 @@ __global__ void cuda_kernel_warmup(float *p)
 
 // naive!!
 __global__ void cuda_kernel_sgemm_0(
-    float *a, float *b, float *c,
-    size_t N, size_t M, size_t K,
-    float alpha, float beta)
-{
+        float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta) {
     int ir = blockIdx.x * 32 + threadIdx.x; // row idx in global
     int ic = blockIdx.y * 32 + threadIdx.y; // col idx in global
 
-    if (ir < M && ic < N)
-    {
+    if (ir < M && ic < N) {
 #define idx(ri, ci, nc) ((ri) * (nc) + (ci))
         float acc = 0.0f;
-        for (int k = 0; k < K; ++k)
-        {
+        for (int k = 0; k < K; ++k) {
             acc += a[idx(ir, k, K)] * b[idx(k, ic, N)];
         }
         c[idx(ir, ic, N)] = alpha * acc + beta * c[idx(ir, ic, N)];
@@ -35,10 +29,7 @@ __global__ void cuda_kernel_sgemm_0(
 
 // use shared memory & tile
 __global__ void cuda_kernel_sgemm_1(
-    float *a, float *b, float *c,
-    size_t N, size_t M, size_t K,
-    float alpha, float beta)
-{
+        float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta) {
     int tr = threadIdx.x;                   // row idx in block
     int tc = threadIdx.y;                   // col idx in block
     int ir = blockIdx.x * 32 + threadIdx.x; // row idx in global
@@ -48,16 +39,14 @@ __global__ void cuda_kernel_sgemm_1(
     __shared__ float b_sub[32][32 + 1];
 
     int load_size = K / 32;
-    if (K % 32 != 0)
-    {
+    if (K % 32 != 0) {
         load_size += 1;
     }
     float acc = 0.0f;
     int a_ir = ir;
     int b_ic = ic;
 #define idx(ri, ci, nc) ((ri) * (nc) + (ci))
-    for (int l = 0; l < load_size; ++l)
-    {
+    for (int l = 0; l < load_size; ++l) {
         int a_ic = l * 32 + tc;
         int b_ir = l * 32 + tr;
         a_sub[tr][tc] = 0.0f;
@@ -70,8 +59,7 @@ __global__ void cuda_kernel_sgemm_1(
         __syncthreads();
 
 #pragma unroll
-        for (int k = 0; k < 32; ++k)
-        {
+        for (int k = 0; k < 32; ++k) {
             acc += a_sub[tr][k] * b_sub[k][tc];
         }
 
@@ -85,10 +73,7 @@ __global__ void cuda_kernel_sgemm_1(
 
 // use __ldg & avoid bank conflict
 __global__ void cuda_kernel_sgemm_2(
-    float *a, float *b, float *c,
-    size_t N, size_t M, size_t K,
-    float alpha, float beta)
-{
+        float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta) {
     int tr = threadIdx.x;                   // row idx in block
     int tc = threadIdx.y;                   // col idx in block
     int ir = blockIdx.x * 32 + threadIdx.x; // row idx in global
@@ -98,34 +83,31 @@ __global__ void cuda_kernel_sgemm_2(
     __shared__ float b_sub[32][32 + 1];
 
     int load_size = K / 32;
-    if (K % 32 != 0)
-    {
+    if (K % 32 != 0) {
         load_size += 1;
     }
     float acc = 0.0f;
     int a_ir = ir;
     int b_ic = ic;
 #define idx(ri, ci, nc) ((ri) * (nc) + (ci))
-    for (int l = 0; l < load_size; ++l)
-    {
+    for (int l = 0; l < load_size; ++l) {
         int a_ic = l * 32 + tc;
         int b_ir = l * 32 + tr;
         a_sub[tr][tc] = 0.0f;
         b_sub[tr][tc] = 0.0f;
         if (a_ir < M && a_ic < K) {
-            a_sub[tr][tc] = __ldg(&a[idx(a_ir, a_ic, K)]);  // cache
-//            a_sub[tr][tc] = a[idx(a_ir, a_ic, K)];
+            a_sub[tr][tc] = __ldg(&a[idx(a_ir, a_ic, K)]); // cache
+                                                           //            a_sub[tr][tc] = a[idx(a_ir, a_ic, K)];
         }
         if (b_ir < K && b_ic < N) {
             b_sub[tr][tc] = __ldg(&b[idx(b_ir, b_ic, N)]);
-//            b_sub[tr][tc] = b[idx(b_ir, b_ic, N)];
+            //            b_sub[tr][tc] = b[idx(b_ir, b_ic, N)];
         }
 
         __syncthreads();
 
 #pragma unroll
-        for (int k = 0; k < 32; ++k)
-        {
+        for (int k = 0; k < 32; ++k) {
             acc += a_sub[tr][k] * b_sub[k][tc];
         }
 
@@ -138,10 +120,7 @@ __global__ void cuda_kernel_sgemm_2(
 }
 
 __global__ void cuda_kernel_sgemm_2_64x64(
-    float *a, float *b, float *c,
-    size_t N, size_t M, size_t K,
-    float alpha, float beta)
-{
+        float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta) {
     int tr = 2 * threadIdx.x;                   // row idx in block
     int tc = 2 * threadIdx.y;                   // col idx in block
     int ir = blockIdx.x * 64 + 2 * threadIdx.x; // row idx in global
@@ -151,8 +130,7 @@ __global__ void cuda_kernel_sgemm_2_64x64(
     __shared__ float b_sub[64][64 + 1];
 
     int load_size = K / 64;
-    if (K % 64 != 0)
-    {
+    if (K % 64 != 0) {
         load_size += 1;
     }
     float acc00 = 0.0f;
@@ -162,8 +140,7 @@ __global__ void cuda_kernel_sgemm_2_64x64(
     int a_ir = ir;
     int b_ic = ic;
 #define idx(ri, ci, nc) ((ri) * (nc) + (ci))
-    for (int l = 0; l < load_size; ++l)
-    {
+    for (int l = 0; l < load_size; ++l) {
         int a_ic = l * 64 + tc;
         int b_ir = l * 64 + tr;
         a_sub[tr][tc] = 0.0f;
@@ -185,17 +162,16 @@ __global__ void cuda_kernel_sgemm_2_64x64(
             // b_sub[tr + 1][tc + 0] = __ldg(&b[idx(b_ir + 1, b_ic + 0, N)]);  // cache
             // b_sub[tr + 1][tc + 1] = __ldg(&b[idx(b_ir + 1, b_ic + 1, N)]);  // cache
 
-            b_sub[tr + 0][tc + 0] = b[idx(b_ir + 0, b_ic + 0, N)];  // cache
-            b_sub[tr + 0][tc + 1] = b[idx(b_ir + 0, b_ic + 1, N)];  // cache
-            b_sub[tr + 1][tc + 0] = b[idx(b_ir + 1, b_ic + 0, N)];  // cache
-            b_sub[tr + 1][tc + 1] = b[idx(b_ir + 1, b_ic + 1, N)];  // cache
+            b_sub[tr + 0][tc + 0] = b[idx(b_ir + 0, b_ic + 0, N)]; // cache
+            b_sub[tr + 0][tc + 1] = b[idx(b_ir + 0, b_ic + 1, N)]; // cache
+            b_sub[tr + 1][tc + 0] = b[idx(b_ir + 1, b_ic + 0, N)]; // cache
+            b_sub[tr + 1][tc + 1] = b[idx(b_ir + 1, b_ic + 1, N)]; // cache
         }
 
         __syncthreads();
 
 #pragma unroll
-        for (int k = 0; k < 64; ++k)
-        {
+        for (int k = 0; k < 64; ++k) {
             acc00 += a_sub[tr + 0][k] * b_sub[k][tc + 0];
             acc01 += a_sub[tr + 0][k] * b_sub[k][tc + 1];
             acc10 += a_sub[tr + 1][k] * b_sub[k][tc + 0];
@@ -207,16 +183,13 @@ __global__ void cuda_kernel_sgemm_2_64x64(
 
     if (ir < M - 1 && ic < N - 1)
         c[idx(ir + 0, ic + 0, N)] = alpha * acc00 + beta * c[idx(ir + 0, ic + 0, N)];
-        c[idx(ir + 0, ic + 1, N)] = alpha * acc01 + beta * c[idx(ir + 0, ic + 1, N)];
-        c[idx(ir + 1, ic + 0, N)] = alpha * acc10 + beta * c[idx(ir + 1, ic + 0, N)];
-        c[idx(ir + 1, ic + 1, N)] = alpha * acc11 + beta * c[idx(ir + 1, ic + 1, N)];
+    c[idx(ir + 0, ic + 1, N)] = alpha * acc01 + beta * c[idx(ir + 0, ic + 1, N)];
+    c[idx(ir + 1, ic + 0, N)] = alpha * acc10 + beta * c[idx(ir + 1, ic + 0, N)];
+    c[idx(ir + 1, ic + 1, N)] = alpha * acc11 + beta * c[idx(ir + 1, ic + 1, N)];
 #undef idx
 }
 
-__device__ void sgemm_block_64x64(
-        float *a, float *b, float *c,
-        size_t M, size_t N, size_t K,
-        float alpha, float beta) {
+__device__ void sgemm_block_64x64(float* a, float* b, float* c, size_t M, size_t N, size_t K, float alpha, float beta) {
 
     __shared__ float a_b_shm[2 * 16 * 64];
 
@@ -239,22 +212,22 @@ __device__ void sgemm_block_64x64(
 
     float* read_addr = tid >= 32 ? b : a;
 
-    float cbb00=0, cbb01=0, cbb02=0, cbb03=0;
-    float cbb10=0, cbb11=0, cbb12=0, cbb13=0;
-    float cbb20=0, cbb21=0, cbb22=0, cbb23=0;
-    float cbb30=0, cbb31=0, cbb32=0, cbb33=0;
-    float cba00=0, cba01=0, cba02=0, cba03=0;
-    float cba10=0, cba11=0, cba12=0, cba13=0;
-    float cba20=0, cba21=0, cba22=0, cba23=0;
-    float cba30=0, cba31=0, cba32=0, cba33=0;
-    float cab00=0, cab01=0, cab02=0, cab03=0;
-    float cab10=0, cab11=0, cab12=0, cab13=0;
-    float cab20=0, cab21=0, cab22=0, cab23=0;
-    float cab30=0, cab31=0, cab32=0, cab33=0;
-    float caa00=0, caa01=0, caa02=0, caa03=0;
-    float caa10=0, caa11=0, caa12=0, caa13=0;
-    float caa20=0, caa21=0, caa22=0, caa23=0;
-    float caa30=0, caa31=0, caa32=0, caa33=0;
+    float cbb00 = 0, cbb01 = 0, cbb02 = 0, cbb03 = 0;
+    float cbb10 = 0, cbb11 = 0, cbb12 = 0, cbb13 = 0;
+    float cbb20 = 0, cbb21 = 0, cbb22 = 0, cbb23 = 0;
+    float cbb30 = 0, cbb31 = 0, cbb32 = 0, cbb33 = 0;
+    float cba00 = 0, cba01 = 0, cba02 = 0, cba03 = 0;
+    float cba10 = 0, cba11 = 0, cba12 = 0, cba13 = 0;
+    float cba20 = 0, cba21 = 0, cba22 = 0, cba23 = 0;
+    float cba30 = 0, cba31 = 0, cba32 = 0, cba33 = 0;
+    float cab00 = 0, cab01 = 0, cab02 = 0, cab03 = 0;
+    float cab10 = 0, cab11 = 0, cab12 = 0, cab13 = 0;
+    float cab20 = 0, cab21 = 0, cab22 = 0, cab23 = 0;
+    float cab30 = 0, cab31 = 0, cab32 = 0, cab33 = 0;
+    float caa00 = 0, caa01 = 0, caa02 = 0, caa03 = 0;
+    float caa10 = 0, caa11 = 0, caa12 = 0, caa13 = 0;
+    float caa20 = 0, caa21 = 0, caa22 = 0, caa23 = 0;
+    float caa30 = 0, caa31 = 0, caa32 = 0, caa33 = 0;
 
     // float cbb00, cbb01, cbb02, cbb03;
     // float cbb10, cbb11, cbb12, cbb13;
@@ -413,7 +386,6 @@ __device__ void sgemm_block_64x64(
             // caa32 = j0Ba02;
             // caa33 = j0Ba03;
 
-
             cbb00 += j0Bb00 * j0Ab00;
             cbb01 += j0Bb00 * j0Ab01;
             // j1Ab00 = a_b_shm[readAs + prefetch * 64 + 0];
@@ -516,7 +488,6 @@ __device__ void sgemm_block_64x64(
     }
     __syncthreads();
 
-
     int tid31 = tid & 31;
     int tid32 = tid & 32;
     int coord_x = readBs & 0x7f;
@@ -545,21 +516,21 @@ __device__ void sgemm_block_64x64(
     //     printf("reg r39, c8: %f\n", cab03);
     // }
 
-    cbb00 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb00 = a_b_shm[readCs + 0 * 64 + 0];
     cbb01 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb02 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb02 = a_b_shm[readCs + 1 * 64 + 0];
     cbb03 = a_b_shm[readCs + 1 * 64 + 32];
-    cab00 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab00 = a_b_shm[readCs + 2 * 64 + 0];
     cab01 = a_b_shm[readCs + 2 * 64 + 32];
-    cab02 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab02 = a_b_shm[readCs + 3 * 64 + 0];
     cab03 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb00;
+    c[Cy00 + 0] = cbb00;
     c[Cy00 + 32] = cbb01;
-    c[Cy04 + 0 ] = cbb02;
+    c[Cy04 + 0] = cbb02;
     c[Cy04 + 32] = cbb03;
-    c[Cy08 + 0 ] = cab00;
+    c[Cy08 + 0] = cab00;
     c[Cy08 + 32] = cab01;
-    c[Cy12 + 0 ] = cab02;
+    c[Cy12 + 0] = cab02;
     c[Cy12 + 32] = cab03;
 
     Cy00 += M;
@@ -575,21 +546,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = cab12;
     a_b_shm[writeCs + 32 + 3] = cab13;
 
-    cbb10 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb10 = a_b_shm[readCs + 0 * 64 + 0];
     cbb11 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb12 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb12 = a_b_shm[readCs + 1 * 64 + 0];
     cbb13 = a_b_shm[readCs + 1 * 64 + 32];
-    cab10 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab10 = a_b_shm[readCs + 2 * 64 + 0];
     cab11 = a_b_shm[readCs + 2 * 64 + 32];
-    cab12 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab12 = a_b_shm[readCs + 3 * 64 + 0];
     cab13 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb10;
+    c[Cy00 + 0] = cbb10;
     c[Cy00 + 32] = cbb11;
-    c[Cy04 + 0 ] = cbb12;
+    c[Cy04 + 0] = cbb12;
     c[Cy04 + 32] = cbb13;
-    c[Cy08 + 0 ] = cab10;
+    c[Cy08 + 0] = cab10;
     c[Cy08 + 32] = cab11;
-    c[Cy12 + 0 ] = cab12;
+    c[Cy12 + 0] = cab12;
     c[Cy12 + 32] = cab13;
 
     Cy00 += M;
@@ -605,21 +576,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = cab22;
     a_b_shm[writeCs + 32 + 3] = cab23;
 
-    cbb20 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb20 = a_b_shm[readCs + 0 * 64 + 0];
     cbb21 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb22 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb22 = a_b_shm[readCs + 1 * 64 + 0];
     cbb23 = a_b_shm[readCs + 1 * 64 + 32];
-    cab20 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab20 = a_b_shm[readCs + 2 * 64 + 0];
     cab21 = a_b_shm[readCs + 2 * 64 + 32];
-    cab22 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab22 = a_b_shm[readCs + 3 * 64 + 0];
     cab23 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb20;
+    c[Cy00 + 0] = cbb20;
     c[Cy00 + 32] = cbb21;
-    c[Cy04 + 0 ] = cbb22;
+    c[Cy04 + 0] = cbb22;
     c[Cy04 + 32] = cbb23;
-    c[Cy08 + 0 ] = cab20;
+    c[Cy08 + 0] = cab20;
     c[Cy08 + 32] = cab21;
-    c[Cy12 + 0 ] = cab22;
+    c[Cy12 + 0] = cab22;
     c[Cy12 + 32] = cab23;
 
     Cy00 += M;
@@ -635,21 +606,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = cab32;
     a_b_shm[writeCs + 32 + 3] = cab33;
 
-    cbb30 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb30 = a_b_shm[readCs + 0 * 64 + 0];
     cbb31 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb32 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb32 = a_b_shm[readCs + 1 * 64 + 0];
     cbb33 = a_b_shm[readCs + 1 * 64 + 32];
-    cab30 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab30 = a_b_shm[readCs + 2 * 64 + 0];
     cab31 = a_b_shm[readCs + 2 * 64 + 32];
-    cab32 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab32 = a_b_shm[readCs + 3 * 64 + 0];
     cab33 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb30;
+    c[Cy00 + 0] = cbb30;
     c[Cy00 + 32] = cbb31;
-    c[Cy04 + 0 ] = cbb32;
+    c[Cy04 + 0] = cbb32;
     c[Cy04 + 32] = cbb33;
-    c[Cy08 + 0 ] = cab30;
+    c[Cy08 + 0] = cab30;
     c[Cy08 + 32] = cab31;
-    c[Cy12 + 0 ] = cab32;
+    c[Cy12 + 0] = cab32;
     c[Cy12 + 32] = cab33;
 
     Cy00 += M;
@@ -671,21 +642,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = caa02;
     a_b_shm[writeCs + 32 + 3] = caa03;
 
-    cba00 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba00 = a_b_shm[readCs + 0 * 64 + 0];
     cba01 = a_b_shm[readCs + 0 * 64 + 32];
-    cba02 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba02 = a_b_shm[readCs + 1 * 64 + 0];
     cba03 = a_b_shm[readCs + 1 * 64 + 32];
-    caa00 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa00 = a_b_shm[readCs + 2 * 64 + 0];
     caa01 = a_b_shm[readCs + 2 * 64 + 32];
-    caa02 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa02 = a_b_shm[readCs + 3 * 64 + 0];
     caa03 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba00;
+    c[Cy00 + 0] = cba00;
     c[Cy00 + 32] = cba01;
-    c[Cy04 + 0 ] = cba02;
+    c[Cy04 + 0] = cba02;
     c[Cy04 + 32] = cba03;
-    c[Cy08 + 0 ] = caa00;
+    c[Cy08 + 0] = caa00;
     c[Cy08 + 32] = caa01;
-    c[Cy12 + 0 ] = caa02;
+    c[Cy12 + 0] = caa02;
     c[Cy12 + 32] = caa03;
 
     Cy00 += M;
@@ -701,21 +672,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = caa12;
     a_b_shm[writeCs + 32 + 3] = caa13;
 
-    cba10 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba10 = a_b_shm[readCs + 0 * 64 + 0];
     cba11 = a_b_shm[readCs + 0 * 64 + 32];
-    cba12 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba12 = a_b_shm[readCs + 1 * 64 + 0];
     cba13 = a_b_shm[readCs + 1 * 64 + 32];
-    caa10 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa10 = a_b_shm[readCs + 2 * 64 + 0];
     caa11 = a_b_shm[readCs + 2 * 64 + 32];
-    caa12 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa12 = a_b_shm[readCs + 3 * 64 + 0];
     caa13 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba10;
+    c[Cy00 + 0] = cba10;
     c[Cy00 + 32] = cba11;
-    c[Cy04 + 0 ] = cba12;
+    c[Cy04 + 0] = cba12;
     c[Cy04 + 32] = cba13;
-    c[Cy08 + 0 ] = caa10;
+    c[Cy08 + 0] = caa10;
     c[Cy08 + 32] = caa11;
-    c[Cy12 + 0 ] = caa12;
+    c[Cy12 + 0] = caa12;
     c[Cy12 + 32] = caa13;
 
     Cy00 += M;
@@ -731,21 +702,21 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = caa22;
     a_b_shm[writeCs + 32 + 3] = caa23;
 
-    cba20 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba20 = a_b_shm[readCs + 0 * 64 + 0];
     cba21 = a_b_shm[readCs + 0 * 64 + 32];
-    cba22 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba22 = a_b_shm[readCs + 1 * 64 + 0];
     cba23 = a_b_shm[readCs + 1 * 64 + 32];
-    caa20 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa20 = a_b_shm[readCs + 2 * 64 + 0];
     caa21 = a_b_shm[readCs + 2 * 64 + 32];
-    caa22 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa22 = a_b_shm[readCs + 3 * 64 + 0];
     caa23 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba20;
+    c[Cy00 + 0] = cba20;
     c[Cy00 + 32] = cba21;
-    c[Cy04 + 0 ] = cba22;
+    c[Cy04 + 0] = cba22;
     c[Cy04 + 32] = cba23;
-    c[Cy08 + 0 ] = caa20;
+    c[Cy08 + 0] = caa20;
     c[Cy08 + 32] = caa21;
-    c[Cy12 + 0 ] = caa22;
+    c[Cy12 + 0] = caa22;
     c[Cy12 + 32] = caa23;
 
     Cy00 += M;
@@ -761,28 +732,26 @@ __device__ void sgemm_block_64x64(
     a_b_shm[writeCs + 32 + 2] = caa32;
     a_b_shm[writeCs + 32 + 3] = caa33;
 
-    cba30 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba30 = a_b_shm[readCs + 0 * 64 + 0];
     cba31 = a_b_shm[readCs + 0 * 64 + 32];
-    cba32 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba32 = a_b_shm[readCs + 1 * 64 + 0];
     cba33 = a_b_shm[readCs + 1 * 64 + 32];
-    caa30 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa30 = a_b_shm[readCs + 2 * 64 + 0];
     caa31 = a_b_shm[readCs + 2 * 64 + 32];
-    caa32 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa32 = a_b_shm[readCs + 3 * 64 + 0];
     caa33 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba30;
+    c[Cy00 + 0] = cba30;
     c[Cy00 + 32] = cba31;
-    c[Cy04 + 0 ] = cba32;
+    c[Cy04 + 0] = cba32;
     c[Cy04 + 32] = cba33;
-    c[Cy08 + 0 ] = caa30;
+    c[Cy08 + 0] = caa30;
     c[Cy08 + 32] = caa31;
-    c[Cy12 + 0 ] = caa32;
+    c[Cy12 + 0] = caa32;
     c[Cy12 + 32] = caa33;
 }
 
 __global__ void cuda_kernel_sgemm_100(
-        float *a, float *b, float *c,
-        size_t M, size_t N, size_t K,
-        float alpha, float beta) {
+        float* a, float* b, float* c, size_t M, size_t N, size_t K, float alpha, float beta) {
     int block_x = blockIdx.x;
     int block_y = blockIdx.y;
     float* block_a = a + block_y * 64;
@@ -791,18 +760,8 @@ __global__ void cuda_kernel_sgemm_100(
     sgemm_block_64x64(block_a, block_b, block_c, M, N, K, alpha, beta);
 }
 
-__global__ void ReferenceGemm_kernel(
-        int M,
-        int N,
-        int K,
-        float alpha,
-        float const *A,
-        int lda,
-        float const *B,
-        int ldb,
-        float beta,
-        float *C,
-        int ldc) {
+__global__ void ReferenceGemm_kernel(int M, int N, int K, float alpha, float const* A, int lda, float const* B, int ldb,
+        float beta, float* C, int ldc) {
 
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
@@ -812,34 +771,21 @@ __global__ void ReferenceGemm_kernel(
 
         for (int k = 0; k < K; ++k) {
             accumulator += A[i * lda + k] * B[k * ldb + j];
-//            accumulator += A[i + k * lda] * B[k + j * ldb];
+            //            accumulator += A[i + k * lda] * B[k + j * ldb];
         }
 
         C[i * ldc + j] = alpha * accumulator + beta * C[i * ldc + j];
-//        C[i + j * ldc] = alpha * accumulator + beta * C[i + j * ldc];
+        //        C[i + j * ldc] = alpha * accumulator + beta * C[i + j * ldc];
     }
 }
 
-cudaError_t ReferenceGemm(
-        int M,
-        int N,
-        int K,
-        float alpha,
-        float const *A,
-        int lda,
-        float const *B,
-        int ldb,
-        float beta,
-        float *C,
-        int ldc) {
+cudaError_t ReferenceGemm(int M, int N, int K, float alpha, float const* A, int lda, float const* B, int ldb,
+        float beta, float* C, int ldc) {
 
     dim3 block(16, 16);
-    dim3 grid(
-            (M + block.x - 1) / block.x,
-            (N + block.y - 1) / block.y
-    );
+    dim3 grid((M + block.x - 1) / block.x, (N + block.y - 1) / block.y);
 
-    ReferenceGemm_kernel<<< grid, block >>>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    ReferenceGemm_kernel<<<grid, block>>>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 
     return cudaGetLastError();
 }

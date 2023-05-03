@@ -1,15 +1,15 @@
 #include "matmul_kernel.h"
-#include "prof.h"
 #include "openblas/cblas.h"
+#include "prof.h"
 
-#include <cuda_runtime.h>
-#include <cublas_v2.h>
-#include <helper_cuda.h>
-#include <stdio.h>
 #include <assert.h>
+#include <cublas_v2.h>
+#include <cuda_runtime.h>
+#include <helper_cuda.h>
+#include <iostream>
 #include <math.h>
 #include <omp.h>
-#include <iostream>
+#include <stdio.h>
 
 using namespace std;
 
@@ -18,84 +18,77 @@ using namespace std;
 #define WMMA_K 16
 
 __global__ void cuda_kernel_sgemm_100_tex(
-        float *a, float *b, float *c,
-        size_t M, size_t N, size_t K,
-        float alpha, float beta);
+        float* a, float* b, float* c, size_t M, size_t N, size_t K, float alpha, float beta);
 
-typedef texture<float, cudaTextureType1D, cudaReadModeElementType> floatTex;
-texture<float, cudaTextureType1D, cudaReadModeElementType> tex1DRefA(0, cudaFilterModePoint, cudaAddressModeBorder);
-texture<float, cudaTextureType1D, cudaReadModeElementType> tex1DRefB(0, cudaFilterModePoint, cudaAddressModeBorder);
-#define     USE_TEXTURE     1
+// typedef texture<float, cudaTextureType1D, cudaReadModeElementType> floatTex;
+// texture<float, cudaTextureType1D, cudaReadModeElementType> tex1DRefA(0, cudaFilterModePoint, cudaAddressModeBorder);
+// texture<float, cudaTextureType1D, cudaReadModeElementType> tex1DRefB(0, cudaFilterModePoint, cudaAddressModeBorder);
+#define USE_TEXTURE 0
 
-
-void gpu_sgemm(
-        float *a, float *b, float *c,
-        size_t N, size_t M, size_t K,
-        float alpha, float beta, int kernel_type) {
-    float *dev_a = NULL;
-    float *dev_at = NULL;
-    float *dev_b = NULL;
-    float *dev_c = NULL;
-    half *A = NULL;
-    half *B = NULL;
-    half *B_ht = NULL;
-    float *C = NULL;
-    float *D = NULL;
+void gpu_sgemm(float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta, int kernel_type,
+        bool half_input, bool trans_a) {
+    float* dev_a = NULL;
+    float* dev_at = NULL;
+    float* dev_b = NULL;
+    float* dev_c = NULL;
+    half* A = NULL;
+    half* B = NULL;
+    float* C = NULL;
+    float* D = NULL;
+    float* at = (float*)malloc(M * K * sizeof(float));
+    half* ch = (half*)malloc(M * N * sizeof(half));
     float flop = 2 * (float)M * (float)N * (float)K;
     cublasHandle_t handle;
+    cublasCreate(&handle);
 
     int lda = K;
     int ldb = N;
     int ldc = N;
-//    int lda = M;
-//    int ldb = K;
-//    int ldc = M;
+    //    int lda = M;
+    //    int ldb = K;
+    //    int ldc = M;
 
-    if (kernel_type == 'b') cublasCreate(&handle);
-    if (kernel_type == 't') {
-        half *B_h = (half*)b;
-        B_ht = (half*)malloc(sizeof(half) * K * N);
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < K; ++j) {
-                B_ht[i * K + j] = B_h[j * N + i];
-            }
-        }
-
+    if (half_input) {
         checkCudaErrors(cudaMalloc((void**)&A, sizeof(half) * M * K));
         checkCudaErrors(cudaMalloc((void**)&B, sizeof(half) * N * K));
         checkCudaErrors(cudaMalloc((void**)&C, sizeof(float) * M * N));
         checkCudaErrors(cudaMalloc((void**)&D, sizeof(float) * M * N));
-//        assert((int(A)) % 128 == 0);
+        checkCudaErrors(cudaMalloc((void**)&dev_c, M * N * sizeof(float)));
         assert(((unsigned long long)A) % 128 == 0);
         assert(((unsigned long long)B) % 128 == 0);
         assert(((unsigned long long)C) % 128 == 0);
         assert(((unsigned long long)D) % 128 == 0);
         checkCudaErrors(cudaMemcpy(A, a, sizeof(half) * M * K, cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(B, B_ht, sizeof(half) * N * K, cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(C, c, sizeof(float) * M * N, cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemset(D, 0, sizeof(float) * M * N));
-    }
+        checkCudaErrors(cudaMemcpy(B, b, sizeof(half) * N * K, cudaMemcpyHostToDevice));
 
-    float* at = (float*)malloc(M * K * sizeof(float));
-    for (int i = 0; i < M; ++i) {
-        for (int j = 0; j < K; ++j) {
-            at[j * M + i] = a[i * K + j];
+        for (int i = 0; i < M * N; ++i) {
+            ch[i] = __float2half(c[i]);
+        }
+        checkCudaErrors(cudaMemcpy(C, ch, sizeof(half) * M * N, cudaMemcpyHostToDevice));
+
+        checkCudaErrors(cudaMemset(D, 0, sizeof(float) * M * N));
+        cudaMemcpy(dev_c, c, M * N * sizeof(float), cudaMemcpyHostToDevice);
+    } else {
+        cudaMalloc((void**)&dev_a, M * K * sizeof(float));
+        cudaMalloc((void**)&dev_b, K * N * sizeof(float));
+        cudaMalloc((void**)&dev_c, M * N * sizeof(float));
+        cudaMemcpy(dev_a, a, M * K * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_b, b, K * N * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_c, c, M * N * sizeof(float), cudaMemcpyHostToDevice);
+        if (trans_a) {
+            for (int i = 0; i < M; ++i) {
+                for (int j = 0; j < K; ++j) {
+                    at[j * M + i] = a[i * K + j];
+                }
+            }
+            cudaMalloc((void**)&dev_at, M * K * sizeof(float));
+            cudaMemcpy(dev_at, at, M * K * sizeof(float), cudaMemcpyHostToDevice);
         }
     }
-    cudaMalloc((void **)&dev_a, M * K * sizeof(float));
-    cudaMalloc((void **)&dev_at, M * K * sizeof(float));
-    cudaMalloc((void **)&dev_b, K * N * sizeof(float));
-    cudaMalloc((void **)&dev_c, M * N * sizeof(float));
-    cudaMemcpy(dev_a, a, M * K * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_at, at, M * K * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_b, b, K * N * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_c, c, M * N * sizeof(float), cudaMemcpyHostToDevice);
-    cudaBindTexture(0, tex1DRefA, dev_at, M * K * sizeof(float));
-    cudaBindTexture(0, tex1DRefB, dev_b, K * N * sizeof(float));
-    int cycle_count = 100;
 
-//    hs_timer timer;
-//    timer.tic("gpu sgemm");
+    // cudaBindTexture(0, tex1DRefA, dev_at, M * K * sizeof(float));
+    // cudaBindTexture(0, tex1DRefB, dev_b, K * N * sizeof(float));
+    int cycle_count = 100;
 
     cudaError_t result;
     cudaEvent_t start;
@@ -104,172 +97,230 @@ void gpu_sgemm(
     cudaEventCreate(&start);
     cudaEventRecord(start, NULL);
 
-    switch (kernel_type)
-    {
-        case 0:
-        {
-            int grid_r = M / 32;
-            int grid_c = N / 32;
-            if (M % 32 != 0)
-                grid_r += 1;
-            if (N % 32 != 0)
-                grid_c += 1;
-            dim3 grid_d(grid_r, grid_c, 1);
-            dim3 block_d(32, 32, 1);
-            cuda_kernel_sgemm_0<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
-            break;
-        }
-        case 1:
-        {
-            int grid_r = M / 32;
-            int grid_c = N / 32;
-            if (M % 32 != 0)
-                grid_r += 1;
-            if (N % 32 != 0)
-                grid_c += 1;
-            dim3 grid_d(grid_r, grid_c, 1);
-            dim3 block_d(32, 32, 1);
-            cuda_kernel_sgemm_1<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
-            break;
-        }
-        case 2:
-        {
-            int grid_r = M / 32;
-            int grid_c = N / 32;
-            if (M % 32 != 0)
-                grid_r += 1;
-            if (N % 32 != 0)
-                grid_c += 1;
-            dim3 grid_d(grid_r, grid_c, 1);
-            dim3 block_d(32, 32, 1);
-            for (int n = 0; n < cycle_count; ++n) {
-                cuda_kernel_sgemm_2<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
-            }
-            break;
-        }
-        case 20:
-        {
-            int grid_r = M / 64;
-            int grid_c = N / 64;
-            if (M % 64 != 0)
-                grid_r += 1;
-            if (N % 64 != 0)
-                grid_c += 1;
-            dim3 grid_d(grid_r, grid_c, 1);
-            dim3 block_d(32, 32, 1);
-            for (int n = 0; n < cycle_count; ++n) {
-                cuda_kernel_sgemm_2_64x64<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
-            }
-            break;
-        }
-        case 'b':
-        {
-            for (int n = 0; n < cycle_count; ++n) {
-                cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, dev_b, N, dev_a, K, &beta, dev_c, N);
-            }
-            break;
-        }
-        case 'c':
-        {
-            for (int n = 0; n < cycle_count; ++n) {
-                result = CutlassSgemmNN(M, N, K, alpha, dev_a, lda, dev_b, ldb, beta, dev_c, ldc);
-            }
-            if (result == cudaSuccess) {
-                cout << "CutlassSgemmNN success" << endl;
-            }
-            break;
-        }
-        case 'r':
-        {
-            cudaError_t result;
-            result = ReferenceGemm(M, N, K, alpha, dev_a, lda, dev_b, ldb, beta, dev_c, ldc);
-            if (result == cudaSuccess) {
-                cout << "ReferenceGemm success" << endl;
-            }
-            break;
-        }
-        case 't':
-        {
-            dim3 gridDim;
-            dim3 blockDim;
-
-            // blockDim.x must be a multple of warpSize
-            // 128x4 means we have 16 warps and a block computes a 64x64 output tile
-            blockDim.x = 128;
-            blockDim.y = 4;
-
-            gridDim.x = (M + (WMMA_M * blockDim.x / 32 - 1)) / (WMMA_M * blockDim.x / 32);
-            gridDim.y = (N + WMMA_N * blockDim.y - 1) / (WMMA_N * blockDim.y);
-
-            wmma_sgemm_kernel<<<gridDim, blockDim>>>(A, B, C, D, M, N, K, alpha, beta);
-        }
-        case 100:
-        {
-            int stride_x = 64;
-            int stride_y = 64;
-            int grid_x = (N + stride_x - 1) / stride_x;
-            int grid_y = (M + stride_y - 1) / stride_y;
-            int block_x = stride_x;
-            dim3 grid_d(grid_x, grid_y, 1);
-            dim3 block_d(block_x, 1, 1);
-            std::cout << grid_x << " " << grid_y << " " << block_x << std::endl;
-            for (int n = 0; n < cycle_count; ++n) {
-                cuda_kernel_sgemm_100<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
-                // cuda_kernel_sgemm_100_tex<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
-                // cuda_kernel_sgemm_100_v2<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
-            }
-            break;
-        }
+    switch (kernel_type) {
+    case 0: {
+        int grid_r = M / 32;
+        int grid_c = N / 32;
+        if (M % 32 != 0)
+            grid_r += 1;
+        if (N % 32 != 0)
+            grid_c += 1;
+        dim3 grid_d(grid_r, grid_c, 1);
+        dim3 block_d(32, 32, 1);
+        cuda_kernel_sgemm_0<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
+        break;
     }
+    case 1: {
+        int grid_r = M / 32;
+        int grid_c = N / 32;
+        if (M % 32 != 0)
+            grid_r += 1;
+        if (N % 32 != 0)
+            grid_c += 1;
+        dim3 grid_d(grid_r, grid_c, 1);
+        dim3 block_d(32, 32, 1);
+        cuda_kernel_sgemm_1<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
+        break;
+    }
+    case 2: {
+        int grid_r = M / 32;
+        int grid_c = N / 32;
+        if (M % 32 != 0)
+            grid_r += 1;
+        if (N % 32 != 0)
+            grid_c += 1;
+        dim3 grid_d(grid_r, grid_c, 1);
+        dim3 block_d(32, 32, 1);
+        for (int n = 0; n < cycle_count; ++n) {
+            cuda_kernel_sgemm_2<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
+        }
+        break;
+    }
+    case 20: {
+        int grid_r = M / 64;
+        int grid_c = N / 64;
+        if (M % 64 != 0)
+            grid_r += 1;
+        if (N % 64 != 0)
+            grid_c += 1;
+        dim3 grid_d(grid_r, grid_c, 1);
+        dim3 block_d(32, 32, 1);
+        for (int n = 0; n < cycle_count; ++n) {
+            cuda_kernel_sgemm_2_64x64<<<grid_d, block_d>>>(dev_a, dev_b, dev_c, N, M, K, alpha, beta);
+        }
+        break;
+    }
+    case 'b': {
+        assert(!half_input);
+        for (int n = 0; n < cycle_count; ++n) {
+            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, dev_b, N, dev_a, K, &beta, dev_c, N);
+        }
+        break;
+    }
+    case 21: {
+        // cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT;
+        cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
+        if (half_input) {
+            for (int n = 0; n < cycle_count; ++n) {
+                cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, B, CUDA_R_16F, N, A, CUDA_R_16F, K,
+                        &beta, dev_c, CUDA_R_32F, N, CUDA_R_32F, algo);
+            }
+        } else {
+            for (int n = 0; n < cycle_count; ++n) {
+                cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, dev_b, CUDA_R_32F, N, dev_a, CUDA_R_32F,
+                        K, &beta, dev_c, CUDA_R_32F, N, CUDA_R_32F, algo);
+            }
+        }
+        break;
+    }
+    case 'c': {
+        if (half_input) {
+            for (int n = 0; n < cycle_count; ++n) {
+                result = CutlassSgemmNN(M, N, K, alpha, (float*)A, lda, (float*)B, ldb, beta, dev_c, ldc, 1);
+            }
+        } else {
+            for (int n = 0; n < cycle_count; ++n) {
+                result = CutlassSgemmNN(M, N, K, alpha, dev_a, lda, dev_b, ldb, beta, dev_c, ldc, 1);
+            }
+        }
+        // if (result == cudaSuccess) {
+        //     cout << "CutlassSgemmNN success" << endl;
+        // }
+        break;
+    }
+    case 'r': {
+        cudaError_t result;
+        result = ReferenceGemm(M, N, K, alpha, dev_a, lda, dev_b, ldb, beta, dev_c, ldc);
+        // if (result == cudaSuccess) {
+        //     cout << "ReferenceGemm success" << endl;
+        // }
+        break;
+    }
+    case 't': {
+        dim3 gridDim;
+        dim3 blockDim;
+
+        // blockDim.x must be a multple of warpSize
+        // 128x4 means we have 16 warps and a block computes a 64x64 output tile
+        blockDim.x = 128;
+        blockDim.y = 4;
+
+        gridDim.x = (M + (WMMA_M * blockDim.x / 32 - 1)) / (WMMA_M * blockDim.x / 32);
+        gridDim.y = (N + WMMA_N * blockDim.y - 1) / (WMMA_N * blockDim.y);
+
+        assert(half_input);
+        wmma_sgemm_kernel<<<gridDim, blockDim>>>(A, B, C, D, M, N, K, alpha, beta);
+    }
+
+    case 100: {
+        int stride_x = 64;
+        int stride_y = 64;
+        int grid_x = (N + stride_x - 1) / stride_x;
+        int grid_y = (M + stride_y - 1) / stride_y;
+        int block_x = stride_x;
+        dim3 grid_d(grid_x, grid_y, 1);
+        dim3 block_d(block_x, 1, 1);
+        // std::cout << grid_x << " " << grid_y << " " << block_x << std::endl;
+        assert(trans_a);
+        for (int n = 0; n < cycle_count; ++n) {
+            cuda_kernel_sgemm_100<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
+            // cuda_kernel_sgemm_100_tex<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
+            // cuda_kernel_sgemm_100_v2<<<grid_d, block_d>>>(dev_at, dev_b, dev_c, M, N, K, alpha, beta);
+        }
+        break;
+    }
+
+    case 101: {
+        dim3 grid((N + 255) / 256, (M + 127) / 128);
+        for (int n = 0; n < cycle_count; ++n) {
+            ampere_sgemm_128x256x8_kernel<<<grid, 256>>>(dev_a, dev_b, dev_c, M, N, K, N * sizeof(float) * 8, 1);
+        }
+        break;
+    }
+
+    case 102: {
+        dim3 grid((N + 255) / 256, (M + 127) / 128);
+        for (int n = 0; n < cycle_count; ++n) {
+            ampere_sgemm_my_opt_128x256x8_kernel_no_pingpong<<<grid, 256>>>(
+                    dev_a, dev_b, dev_c, M, N, K, N * sizeof(float) * 8, 1);
+        }
+        break;
+    }
+
+    case 103: {
+        dim3 grid((N + 255) / 256, (M + 127) / 128);
+        for (int n = 0; n < cycle_count; ++n) {
+            ampere_sgemm_my_opt_128x256x8_kernel_sm_pingpong<<<grid, 256>>>(
+                    dev_a, dev_b, dev_c, M, N, K, N * sizeof(float) * 8, 1);
+        }
+        break;
+    }
+
+    case 104: {
+        dim3 grid((N + 255) / 256, (M + 127) / 128);
+        for (int n = 0; n < cycle_count; ++n) {
+            ampere_sgemm_my_opt_128x256x8_kernel_sm_reg_pingpong<<<grid, 256>>>(
+                    dev_a, dev_b, dev_c, M, N, K, N * sizeof(float) * 8, 1);
+        }
+        break;
+    }
+    }
+
     cudaEventCreate(&stop);
     cudaEventRecord(stop, NULL);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&msecTotal, start, stop);
-//    cudaDeviceSynchronize();
-    printf("Processing time: %f (ms), GFLOPS: %f \n", msecTotal, cycle_count * flop / msecTotal/ 1e+6);
-//    timer.toc("gpu sgemm");
+    // cudaDeviceSynchronize();
+
+    float GFLOPs = cycle_count * flop / msecTotal / 1e+6;
+    float compute_peak_ratio = 0.0;
+    if (half_input) {
+        compute_peak_ratio = GFLOPs / 312000.0f * 100;
+    } else {
+        compute_peak_ratio = GFLOPs / 19500.0f * 100;
+    }
+    printf("Processing time: %f (ms), GFLOPS: %.6f, compute_peak_ratio: %.2f\%\n", msecTotal / cycle_count, GFLOPs,
+            compute_peak_ratio);
 
     float* ct = (float*)malloc(M * N * sizeof(float));
-    if (kernel_type == 't') {
-        cudaMemcpy(c, D, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-    } else {
-        if (kernel_type == 100) {
-            cudaMemcpy(ct, dev_c, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-            for (int i = 0; i < N; ++i) {
-                for (int j = 0; j < M; ++j) {
-                    c[j * N + i] = ct[i * M + j];
-                }
+    if (kernel_type == 100) {
+        cudaMemcpy(ct, dev_c, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+        for (int i = 0; i < N; ++i) {
+            for (int j = 0; j < M; ++j) {
+                c[j * N + i] = ct[i * M + j];
             }
-        } else {
-            cudaMemcpy(c, dev_c, M * N * sizeof(float), cudaMemcpyDeviceToHost);
         }
+    } else {
+        cudaMemcpy(c, dev_c, M * N * sizeof(float), cudaMemcpyDeviceToHost);
     }
 
-    if (kernel_type == 'b') cublasDestroy(handle);
-    if (kernel_type == 't') {
-        free(B_ht);
+    cublasDestroy(handle);
+    if (half_input) {
         checkCudaErrors(cudaFree((void*)A));
         checkCudaErrors(cudaFree((void*)B));
         checkCudaErrors(cudaFree((void*)C));
         checkCudaErrors(cudaFree((void*)D));
+    } else {
+        checkCudaErrors(cudaFree(dev_a));
+        checkCudaErrors(cudaFree(dev_b));
+        if (trans_a) {
+            checkCudaErrors(cudaFree(dev_at));
+        }
     }
 
+    checkCudaErrors(cudaFree(dev_c));
     free(at);
+    free(ch);
     free(ct);
-    cudaFree(dev_a);
-    cudaFree(dev_at);
-    cudaFree(dev_b);
-    cudaFree(dev_c);
 }
 
-void gpu_warmup()
-{
-    float *dev_p = 0;
+void gpu_warmup() {
+    float* dev_p = 0;
 
     hs_timer timer;
     timer.tic("gpu warmup");
 
-    cudaMalloc((void **)&dev_p, 16 * 32 * sizeof(float));
+    cudaMalloc((void**)&dev_p, 16 * 32 * sizeof(float));
 
     cuda_kernel_warmup<<<16, 32>>>(dev_p);
 
@@ -280,38 +331,31 @@ void gpu_warmup()
     timer.toc("gpu warmup");
 }
 
-//void cpu_kernel_sgemm_0(float *a, float *b, float *c, size_t N, size_t M, size_t K, float alpha, float beta) {
-//    for (int m = 0; m < M; ++m) {
-//        for (int n = 0; n < N; ++n) {
-//            float acc = 0.0f;
-//            for (int k = 0; k < K; ++k) {
-//                acc += a[m * K + k] * b[k * N + n];
-//            }
-//            c[m * N + n] = alpha * acc + beta * c[m * N + n];
-//        }
-//    }
-//}
+// void cpu_kernel_sgemm_0(float *a, float *b, float *c, size_t N, size_t M, size_t K, float alpha, float beta) {
+//     for (int m = 0; m < M; ++m) {
+//         for (int n = 0; n < N; ++n) {
+//             float acc = 0.0f;
+//             for (int k = 0; k < K; ++k) {
+//                 acc += a[m * K + k] * b[k * N + n];
+//             }
+//             c[m * N + n] = alpha * acc + beta * c[m * N + n];
+//         }
+//     }
+// }
 
-void cpu_sgemm(
-        float *a, float *b, float *c,
-        size_t N, size_t M, size_t K,
-        float alpha, float beta, int kernel_type)
-{
+void cpu_sgemm(float* a, float* b, float* c, size_t N, size_t M, size_t K, float alpha, float beta, int kernel_type) {
     hs_timer timer;
     timer.tic("cpu sgemm");
 
-    switch (kernel_type)
-    {
-        case 0:
-        {
-            cpu_kernel_sgemm_0(a, b, c, N, M, K, alpha, beta);
-            break;
-        }
-        case 'm':
-        {
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, a, K, b, N, beta, c, N);
-            break;
-        }
+    switch (kernel_type) {
+    case 0: {
+        cpu_kernel_sgemm_0(a, b, c, N, M, K, alpha, beta);
+        break;
+    }
+    case 'm': {
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, a, K, b, N, beta, c, N);
+        break;
+    }
     }
     timer.toc("cpu sgemm");
 }
@@ -321,11 +365,10 @@ void cpu_warmup() {
     timer.tic("cpu warmup");
 
     const size_t arr_size = 1024;
-    float *p = new float[arr_size];
+    float* p = new float[arr_size];
 
 #pragma omp parallel for simd
-    for (size_t i = 0; i < arr_size; i++)
-    {
+    for (size_t i = 0; i < arr_size; i++) {
         float f = (float)i;
         p[i] = f * f * f;
     }
@@ -335,11 +378,8 @@ void cpu_warmup() {
     timer.toc("cpu warmup");
 }
 
-
 __device__ void sgemm_block_64x64_tex(
-        float *a, float *b, float *c,
-        size_t M, size_t N, size_t K,
-        float alpha, float beta) {
+        float* a, float* b, float* c, size_t M, size_t N, size_t K, float alpha, float beta) {
 
     __shared__ float a_b_shm[2 * 16 * 64];
 
@@ -373,22 +413,22 @@ __device__ void sgemm_block_64x64_tex(
     float* read_addr = tid >= 32 ? b : a;
 #endif
 
-    float cbb00=0, cbb01=0, cbb02=0, cbb03=0;
-    float cbb10=0, cbb11=0, cbb12=0, cbb13=0;
-    float cbb20=0, cbb21=0, cbb22=0, cbb23=0;
-    float cbb30=0, cbb31=0, cbb32=0, cbb33=0;
-    float cba00=0, cba01=0, cba02=0, cba03=0;
-    float cba10=0, cba11=0, cba12=0, cba13=0;
-    float cba20=0, cba21=0, cba22=0, cba23=0;
-    float cba30=0, cba31=0, cba32=0, cba33=0;
-    float cab00=0, cab01=0, cab02=0, cab03=0;
-    float cab10=0, cab11=0, cab12=0, cab13=0;
-    float cab20=0, cab21=0, cab22=0, cab23=0;
-    float cab30=0, cab31=0, cab32=0, cab33=0;
-    float caa00=0, caa01=0, caa02=0, caa03=0;
-    float caa10=0, caa11=0, caa12=0, caa13=0;
-    float caa20=0, caa21=0, caa22=0, caa23=0;
-    float caa30=0, caa31=0, caa32=0, caa33=0;
+    float cbb00 = 0, cbb01 = 0, cbb02 = 0, cbb03 = 0;
+    float cbb10 = 0, cbb11 = 0, cbb12 = 0, cbb13 = 0;
+    float cbb20 = 0, cbb21 = 0, cbb22 = 0, cbb23 = 0;
+    float cbb30 = 0, cbb31 = 0, cbb32 = 0, cbb33 = 0;
+    float cba00 = 0, cba01 = 0, cba02 = 0, cba03 = 0;
+    float cba10 = 0, cba11 = 0, cba12 = 0, cba13 = 0;
+    float cba20 = 0, cba21 = 0, cba22 = 0, cba23 = 0;
+    float cba30 = 0, cba31 = 0, cba32 = 0, cba33 = 0;
+    float cab00 = 0, cab01 = 0, cab02 = 0, cab03 = 0;
+    float cab10 = 0, cab11 = 0, cab12 = 0, cab13 = 0;
+    float cab20 = 0, cab21 = 0, cab22 = 0, cab23 = 0;
+    float cab30 = 0, cab31 = 0, cab32 = 0, cab33 = 0;
+    float caa00 = 0, caa01 = 0, caa02 = 0, caa03 = 0;
+    float caa10 = 0, caa11 = 0, caa12 = 0, caa13 = 0;
+    float caa20 = 0, caa21 = 0, caa22 = 0, caa23 = 0;
+    float caa30 = 0, caa31 = 0, caa32 = 0, caa33 = 0;
 
     // float cbb00, cbb01, cbb02, cbb03;
     // float cbb10, cbb11, cbb12, cbb13;
@@ -596,7 +636,6 @@ __device__ void sgemm_block_64x64_tex(
     }
     __syncthreads();
 
-
     int tid31 = tid & 31;
     int tid32 = tid & 32;
     int coord_x = readBs & 0x7f;
@@ -625,21 +664,21 @@ __device__ void sgemm_block_64x64_tex(
     //     printf("reg r39, c8: %f\n", cab03);
     // }
 
-    cbb00 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb00 = a_b_shm[readCs + 0 * 64 + 0];
     cbb01 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb02 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb02 = a_b_shm[readCs + 1 * 64 + 0];
     cbb03 = a_b_shm[readCs + 1 * 64 + 32];
-    cab00 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab00 = a_b_shm[readCs + 2 * 64 + 0];
     cab01 = a_b_shm[readCs + 2 * 64 + 32];
-    cab02 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab02 = a_b_shm[readCs + 3 * 64 + 0];
     cab03 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb00;
+    c[Cy00 + 0] = cbb00;
     c[Cy00 + 32] = cbb01;
-    c[Cy04 + 0 ] = cbb02;
+    c[Cy04 + 0] = cbb02;
     c[Cy04 + 32] = cbb03;
-    c[Cy08 + 0 ] = cab00;
+    c[Cy08 + 0] = cab00;
     c[Cy08 + 32] = cab01;
-    c[Cy12 + 0 ] = cab02;
+    c[Cy12 + 0] = cab02;
     c[Cy12 + 32] = cab03;
 
     Cy00 += M;
@@ -655,21 +694,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = cab12;
     a_b_shm[writeCs + 32 + 3] = cab13;
 
-    cbb10 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb10 = a_b_shm[readCs + 0 * 64 + 0];
     cbb11 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb12 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb12 = a_b_shm[readCs + 1 * 64 + 0];
     cbb13 = a_b_shm[readCs + 1 * 64 + 32];
-    cab10 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab10 = a_b_shm[readCs + 2 * 64 + 0];
     cab11 = a_b_shm[readCs + 2 * 64 + 32];
-    cab12 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab12 = a_b_shm[readCs + 3 * 64 + 0];
     cab13 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb10;
+    c[Cy00 + 0] = cbb10;
     c[Cy00 + 32] = cbb11;
-    c[Cy04 + 0 ] = cbb12;
+    c[Cy04 + 0] = cbb12;
     c[Cy04 + 32] = cbb13;
-    c[Cy08 + 0 ] = cab10;
+    c[Cy08 + 0] = cab10;
     c[Cy08 + 32] = cab11;
-    c[Cy12 + 0 ] = cab12;
+    c[Cy12 + 0] = cab12;
     c[Cy12 + 32] = cab13;
 
     Cy00 += M;
@@ -685,21 +724,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = cab22;
     a_b_shm[writeCs + 32 + 3] = cab23;
 
-    cbb20 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb20 = a_b_shm[readCs + 0 * 64 + 0];
     cbb21 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb22 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb22 = a_b_shm[readCs + 1 * 64 + 0];
     cbb23 = a_b_shm[readCs + 1 * 64 + 32];
-    cab20 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab20 = a_b_shm[readCs + 2 * 64 + 0];
     cab21 = a_b_shm[readCs + 2 * 64 + 32];
-    cab22 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab22 = a_b_shm[readCs + 3 * 64 + 0];
     cab23 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb20;
+    c[Cy00 + 0] = cbb20;
     c[Cy00 + 32] = cbb21;
-    c[Cy04 + 0 ] = cbb22;
+    c[Cy04 + 0] = cbb22;
     c[Cy04 + 32] = cbb23;
-    c[Cy08 + 0 ] = cab20;
+    c[Cy08 + 0] = cab20;
     c[Cy08 + 32] = cab21;
-    c[Cy12 + 0 ] = cab22;
+    c[Cy12 + 0] = cab22;
     c[Cy12 + 32] = cab23;
 
     Cy00 += M;
@@ -715,21 +754,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = cab32;
     a_b_shm[writeCs + 32 + 3] = cab33;
 
-    cbb30 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cbb30 = a_b_shm[readCs + 0 * 64 + 0];
     cbb31 = a_b_shm[readCs + 0 * 64 + 32];
-    cbb32 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cbb32 = a_b_shm[readCs + 1 * 64 + 0];
     cbb33 = a_b_shm[readCs + 1 * 64 + 32];
-    cab30 = a_b_shm[readCs + 2 * 64 + 0 ];
+    cab30 = a_b_shm[readCs + 2 * 64 + 0];
     cab31 = a_b_shm[readCs + 2 * 64 + 32];
-    cab32 = a_b_shm[readCs + 3 * 64 + 0 ];
+    cab32 = a_b_shm[readCs + 3 * 64 + 0];
     cab33 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cbb30;
+    c[Cy00 + 0] = cbb30;
     c[Cy00 + 32] = cbb31;
-    c[Cy04 + 0 ] = cbb32;
+    c[Cy04 + 0] = cbb32;
     c[Cy04 + 32] = cbb33;
-    c[Cy08 + 0 ] = cab30;
+    c[Cy08 + 0] = cab30;
     c[Cy08 + 32] = cab31;
-    c[Cy12 + 0 ] = cab32;
+    c[Cy12 + 0] = cab32;
     c[Cy12 + 32] = cab33;
 
     Cy00 += M;
@@ -751,21 +790,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = caa02;
     a_b_shm[writeCs + 32 + 3] = caa03;
 
-    cba00 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba00 = a_b_shm[readCs + 0 * 64 + 0];
     cba01 = a_b_shm[readCs + 0 * 64 + 32];
-    cba02 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba02 = a_b_shm[readCs + 1 * 64 + 0];
     cba03 = a_b_shm[readCs + 1 * 64 + 32];
-    caa00 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa00 = a_b_shm[readCs + 2 * 64 + 0];
     caa01 = a_b_shm[readCs + 2 * 64 + 32];
-    caa02 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa02 = a_b_shm[readCs + 3 * 64 + 0];
     caa03 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba00;
+    c[Cy00 + 0] = cba00;
     c[Cy00 + 32] = cba01;
-    c[Cy04 + 0 ] = cba02;
+    c[Cy04 + 0] = cba02;
     c[Cy04 + 32] = cba03;
-    c[Cy08 + 0 ] = caa00;
+    c[Cy08 + 0] = caa00;
     c[Cy08 + 32] = caa01;
-    c[Cy12 + 0 ] = caa02;
+    c[Cy12 + 0] = caa02;
     c[Cy12 + 32] = caa03;
 
     Cy00 += M;
@@ -781,21 +820,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = caa12;
     a_b_shm[writeCs + 32 + 3] = caa13;
 
-    cba10 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba10 = a_b_shm[readCs + 0 * 64 + 0];
     cba11 = a_b_shm[readCs + 0 * 64 + 32];
-    cba12 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba12 = a_b_shm[readCs + 1 * 64 + 0];
     cba13 = a_b_shm[readCs + 1 * 64 + 32];
-    caa10 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa10 = a_b_shm[readCs + 2 * 64 + 0];
     caa11 = a_b_shm[readCs + 2 * 64 + 32];
-    caa12 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa12 = a_b_shm[readCs + 3 * 64 + 0];
     caa13 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba10;
+    c[Cy00 + 0] = cba10;
     c[Cy00 + 32] = cba11;
-    c[Cy04 + 0 ] = cba12;
+    c[Cy04 + 0] = cba12;
     c[Cy04 + 32] = cba13;
-    c[Cy08 + 0 ] = caa10;
+    c[Cy08 + 0] = caa10;
     c[Cy08 + 32] = caa11;
-    c[Cy12 + 0 ] = caa12;
+    c[Cy12 + 0] = caa12;
     c[Cy12 + 32] = caa13;
 
     Cy00 += M;
@@ -811,21 +850,21 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = caa22;
     a_b_shm[writeCs + 32 + 3] = caa23;
 
-    cba20 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba20 = a_b_shm[readCs + 0 * 64 + 0];
     cba21 = a_b_shm[readCs + 0 * 64 + 32];
-    cba22 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba22 = a_b_shm[readCs + 1 * 64 + 0];
     cba23 = a_b_shm[readCs + 1 * 64 + 32];
-    caa20 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa20 = a_b_shm[readCs + 2 * 64 + 0];
     caa21 = a_b_shm[readCs + 2 * 64 + 32];
-    caa22 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa22 = a_b_shm[readCs + 3 * 64 + 0];
     caa23 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba20;
+    c[Cy00 + 0] = cba20;
     c[Cy00 + 32] = cba21;
-    c[Cy04 + 0 ] = cba22;
+    c[Cy04 + 0] = cba22;
     c[Cy04 + 32] = cba23;
-    c[Cy08 + 0 ] = caa20;
+    c[Cy08 + 0] = caa20;
     c[Cy08 + 32] = caa21;
-    c[Cy12 + 0 ] = caa22;
+    c[Cy12 + 0] = caa22;
     c[Cy12 + 32] = caa23;
 
     Cy00 += M;
@@ -841,27 +880,25 @@ __device__ void sgemm_block_64x64_tex(
     a_b_shm[writeCs + 32 + 2] = caa32;
     a_b_shm[writeCs + 32 + 3] = caa33;
 
-    cba30 = a_b_shm[readCs + 0 * 64 + 0 ];
+    cba30 = a_b_shm[readCs + 0 * 64 + 0];
     cba31 = a_b_shm[readCs + 0 * 64 + 32];
-    cba32 = a_b_shm[readCs + 1 * 64 + 0 ];
+    cba32 = a_b_shm[readCs + 1 * 64 + 0];
     cba33 = a_b_shm[readCs + 1 * 64 + 32];
-    caa30 = a_b_shm[readCs + 2 * 64 + 0 ];
+    caa30 = a_b_shm[readCs + 2 * 64 + 0];
     caa31 = a_b_shm[readCs + 2 * 64 + 32];
-    caa32 = a_b_shm[readCs + 3 * 64 + 0 ];
+    caa32 = a_b_shm[readCs + 3 * 64 + 0];
     caa33 = a_b_shm[readCs + 3 * 64 + 32];
-    c[Cy00 + 0 ] = cba30;
+    c[Cy00 + 0] = cba30;
     c[Cy00 + 32] = cba31;
-    c[Cy04 + 0 ] = cba32;
+    c[Cy04 + 0] = cba32;
     c[Cy04 + 32] = cba33;
-    c[Cy08 + 0 ] = caa30;
+    c[Cy08 + 0] = caa30;
     c[Cy08 + 32] = caa31;
-    c[Cy12 + 0 ] = caa32;
+    c[Cy12 + 0] = caa32;
     c[Cy12 + 32] = caa33;
 }
 
 __global__ void cuda_kernel_sgemm_100_tex(
-        float *a, float *b, float *c,
-        size_t M, size_t N, size_t K,
-        float alpha, float beta) {
+        float* a, float* b, float* c, size_t M, size_t N, size_t K, float alpha, float beta) {
     sgemm_block_64x64_tex(a, b, c, M, N, K, alpha, beta);
 }
