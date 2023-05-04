@@ -105,7 +105,7 @@ int main() {
     gpu_warmup();
     cpu_warmup();
     printf("[cpu sgemm kernel]\n");
-    cpu_sgemm(a, b, cc, N, M, K, alpha, beta, 0);
+    cpu_sgemm(a, b, cc, N, M, K, alpha, beta, 'm');
     float eps = 1e-6;
 
     memset(co, 0, M * N * sizeof(float));
