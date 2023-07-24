@@ -88,7 +88,7 @@ void gpu_sgemm(float* a, float* b, float* c, size_t N, size_t M, size_t K, float
 
     // cudaBindTexture(0, tex1DRefA, dev_at, M * K * sizeof(float));
     // cudaBindTexture(0, tex1DRefB, dev_b, K * N * sizeof(float));
-    int cycle_count = 100;
+    int cycle_count = 1000;
 
     cudaError_t result;
     cudaEvent_t start;

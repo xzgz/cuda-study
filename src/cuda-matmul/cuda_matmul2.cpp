@@ -63,12 +63,12 @@ int main() {
     // N = 48;
     // K = 48;
     // M = 5120;
-    M = 4096;
-    N = 4096;
-    K = 4096;
-    // M = 1536;
-    // N = 3072;
-    // K = 1024;
+    // M = 4096;
+    // N = 4096;
+    // K = 4096;
+    M = 1;
+    N = 1280;
+    K = 5120;
 
     float alpha = 1.0f;
     float beta = 0.0f;
@@ -108,36 +108,36 @@ int main() {
     cpu_sgemm(a, b, cc, N, M, K, alpha, beta, 'm');
     float eps = 1e-6;
 
-    memset(co, 0, M * N * sizeof(float));
-    printf("[CutlassSgemmNN]\n");
-    gpu_sgemm(a, b, co, N, M, K, alpha, beta, 'c', false, false);
-    // gpu_sgemm((float*)A_h, (float*)B_h, co, N, M, K, alpha, beta, 'c', true, false);
-    verify(cc, co, M * N, eps);
+    // memset(co, 0, M * N * sizeof(float));
+    // printf("[CutlassSgemmNN]\n");
+    // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 'c', false, false);
+    // // gpu_sgemm((float*)A_h, (float*)B_h, co, N, M, K, alpha, beta, 'c', true, false);
+    // verify(cc, co, M * N, eps);
 
     // memset(co, 0, M * N * sizeof(float));
     // printf("[cuda_kernel_sgemm_100]\n");
     // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 100, false, true);
     // verify(cc, co, M * N, eps);
 
-    memset(co, 0, M * N * sizeof(float));
-    printf("[ampere_sgemm_my_opt_128x256x8_kernel_no_pingpong]\n");
-    gpu_sgemm(a, b, co, N, M, K, alpha, beta, 102, false, false);
-    verify(cc, co, M * N, eps);
+    // memset(co, 0, M * N * sizeof(float));
+    // printf("[ampere_sgemm_my_opt_128x256x8_kernel_no_pingpong]\n");
+    // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 102, false, false);
+    // verify(cc, co, M * N, eps);
 
-    memset(co, 0, M * N * sizeof(float));
-    printf("[ampere_sgemm_my_opt_128x256x8_kernel_sm_pingpong]\n");
-    gpu_sgemm(a, b, co, N, M, K, alpha, beta, 103, false, false);
-    verify(cc, co, M * N, eps);
+    // memset(co, 0, M * N * sizeof(float));
+    // printf("[ampere_sgemm_my_opt_128x256x8_kernel_sm_pingpong]\n");
+    // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 103, false, false);
+    // verify(cc, co, M * N, eps);
 
-    memset(co, 0, M * N * sizeof(float));
-    printf("[ampere_sgemm_my_opt_128x256x8_kernel_sm_reg_pingpong]\n");
-    gpu_sgemm(a, b, co, N, M, K, alpha, beta, 104, false, false);
-    verify(cc, co, M * N, eps);
+    // memset(co, 0, M * N * sizeof(float));
+    // printf("[ampere_sgemm_my_opt_128x256x8_kernel_sm_reg_pingpong]\n");
+    // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 104, false, false);
+    // verify(cc, co, M * N, eps);
 
-    memset(co, 0, M * N * sizeof(float));
-    printf("[ampere_sgemm_128x256x8_kernel]\n");
-    gpu_sgemm(a, b, co, N, M, K, alpha, beta, 101, false, false);
-    verify(cc, co, M * N, eps);
+    // memset(co, 0, M * N * sizeof(float));
+    // printf("[ampere_sgemm_128x256x8_kernel]\n");
+    // gpu_sgemm(a, b, co, N, M, K, alpha, beta, 101, false, false);
+    // verify(cc, co, M * N, eps);
 
     memset(cb, 0, M * N * sizeof(float));
     printf("[cublasGemmEx]\n");
