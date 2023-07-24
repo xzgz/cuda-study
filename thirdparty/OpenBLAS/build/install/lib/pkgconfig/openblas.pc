@@ -1,8 +1,8 @@
-libdir=/workspace3/heyanguang/OpenBLAS/build/install/lib
+libdir=/home/heyanguang/code/OpenBLAS/build/install/lib
 libsuffix=
-includedir=/workspace3/heyanguang/OpenBLAS/build/install/include/openblas
+includedir=/home/heyanguang/code/OpenBLAS/build/install/include/openblas
 
-openblas_config=USE_64BITINT= NO_CBLAS= NO_LAPACK= NO_LAPACKE= DYNAMIC_ARCH=OFF DYNAMIC_OLDER=OFF NO_AFFINITY=ON USE_OPENMP= ZEN MAX_THREADS=256 
+openblas_config=USE_64BITINT= NO_CBLAS= NO_LAPACK= NO_LAPACKE= DYNAMIC_ARCH=OFF DYNAMIC_OLDER=OFF NO_AFFINITY=ON USE_OPENMP= ZEN MAX_THREADS=32 
 Name: OpenBLAS
 Description: OpenBLAS is an optimized BLAS library based on GotoBLAS2 1.13 BSD version
 Version: 
